@@ -1649,6 +1649,21 @@
             }
             m.nCols++;
         }
+        // 칸 안의 여러 문단을 하나로: 표 칸 안 문단은 각각 따로인 입력칸이라 커서·드래그가 서로 넘어가지 않음
+        function joinCellParas(cell){
+            if(cell.querySelector('#mainImg')) return;
+            const ps=[...cell.children].filter(x=>x.tagName==='P');
+            if(ps.length<2) return;
+            const first=ps.find(x=>!isBlank(x))||ps[0];
+            ps.forEach(x=>{
+                if(x===first) return;
+                if(!isBlank(x)){
+                    if(ps.indexOf(x)<ps.indexOf(first)) first.prepend(...x.childNodes,document.createElement('br'));
+                    else first.append(document.createElement('br'),...x.childNodes);
+                }
+                x.remove();
+            });
+        }
         function mergeRect(m,rect){
             const r=expandRect(m,{...rect});
             const inside=m.cells.filter(c=>inRect(c,r)).sort((a,b)=>a.r0-b.r0||a.c0-b.c0);
@@ -1657,6 +1672,7 @@
             // 빈 칸의 빈 줄은 버리고, 글이 있는 칸의 내용만 위에서부터 차례로 모음 (어느 방향으로 선택해도 같음)
             if(filled.length&&isBlank(keep.el)&&!keep.el.querySelector('#mainImg')) keep.el.replaceChildren();
             filled.filter(c=>c!==keep).forEach(c=>keep.el.append(...c.el.childNodes));
+            joinCellParas(keep.el);   // 합친 칸의 글은 하나의 입력칸(문단)으로, 원래 칸마다 한 줄씩
             // 합치기 해제 때 되돌릴 수 있게 각 칸의 원래 모양(제목칸 여부·배경·테두리색)을 기억 (data-split — 복사한 HTML에도 남겨 불러온 뒤에도 해제 가능)
             const memo=[],read=el=>{try{return JSON.parse(el.dataset.split||'[]');}catch(e){return [];}};
             inside.forEach(c=>{
@@ -2307,6 +2323,8 @@ document.querySelectorAll('.wiki h3.sec').forEach(function(h){h.addEventListener
                 }
             });
             // 본문 칸(섹션 본문·접기 내용)은 하나의 입력칸, 안의 표·대사·주의문구·접기는 덩어리
+            // 예전에 합친 칸: 원래 칸마다 따로 남은 입력칸(문단)을 하나로
+            wiki.querySelectorAll('td[rowspan],td[colspan],th[rowspan],th[colspan]').forEach(c=>{if(c.rowSpan>1||c.colSpan>1) joinCellParas(c);});
             // 분류 아래 본문 칸 (예전 문서에는 없으므로 만들어 줌)
             if(!wiki.querySelector('div.wk-top')){
                 const cat=wiki.querySelector('section > span'),tp=document.createElement('div');
