@@ -950,12 +950,13 @@
         // 각주 클릭 시 화면 중앙으로 이동 + 접힌 섹션 펼치기
         function initFnJump(){
             var keyOf=function(h){var n=h.querySelector('.sec-num,.toc-num');return ((n?n.textContent:'').match(/\d+/g)||[]).join('.');};
-            document.addEventListener('click',function(e){
+            // 캡처 단계에서 먼저 처리: 블로그 스킨의 # 링크 처리(맨 위로 붙여 이동)가 끼어들지 않게
+            window.addEventListener('click',function(e){
                 var a=e.target.closest&&e.target.closest('.wiki a[href*="#fn"],.wiki a[href*="#back"]');
                 if(!a) return;
                 var t=document.getElementById((a.getAttribute('href')||'').split('#').pop());
                 if(!t) return;
-                e.preventDefault();
+                e.preventDefault();e.stopPropagation();if(e.stopImmediatePropagation) e.stopImmediatePropagation();
                 var body=t.closest('section > div'),h=body&&body.previousElementSibling,delay=0;
                 if(h&&h.classList.contains('sec')){
                     var key=keyOf(h);
@@ -967,24 +968,36 @@
                 }
                 var target=t.closest('p')||t;
                 setTimeout(function(){target.scrollIntoView({behavior:'smooth',block:'center'});},delay);
-            });
+                // 이동한 자리를 잠깐 노란색으로 표시 (블로그 스킨 CSS에 덮이지 않게 인라인 !important)
+                var st=target.style,old=st.getPropertyValue('background-color'),oldP=st.getPropertyPriority('background-color'),oldT=st.getPropertyValue('transition');
+                st.setProperty('transition','background-color .3s','important');
+                st.setProperty('background-color','#fff3a0','important');
+                clearTimeout(target._wkFlash);
+                target._wkFlash=setTimeout(function(){
+                    if(old) st.setProperty('background-color',old,oldP); else st.removeProperty('background-color');
+                    setTimeout(function(){if(oldT) st.setProperty('transition',oldT); else st.removeProperty('transition');if(!target.getAttribute('style')) target.removeAttribute('style');},400);
+                },delay+1500);
+            },true);
         }
 
         // 섹션 링크(#3.1) 클릭 → 해당 섹션으로 이동 + 접힌 섹션 펼치기 (복사한 HTML에도 포함)
         function initSecJump(){
             var keyOf=function(h){var n=h.querySelector('.sec-num,.toc-num');return ((n?n.textContent:'').match(/\d+/g)||[]).join('.');};
-            document.addEventListener('click',function(e){
-                var a=e.target.closest&&e.target.closest('.wiki a.sec-link');
+            // 섹션 링크(#3.1)와 목차 항목 모두: 대상 섹션과 그 상위 섹션이 접혀 있으면 펼친 뒤 이동
+            window.addEventListener('click',function(e){
+                var a=e.target.closest&&e.target.closest('.wiki a.sec-link,.wiki .toc a');
                 if(!a) return;
-                var num=a.getAttribute('data-sec')||'',hs=Array.prototype.slice.call(document.querySelectorAll('.wiki h3.sec'));
-                var t=hs.filter(function(h){return keyOf(h)===num;})[0]||document.getElementById((a.getAttribute('href')||'').split('#').pop());
+                var hs=Array.prototype.slice.call(document.querySelectorAll('.wiki h3.sec'));
+                var t=a.classList.contains('sec-link')?hs.filter(function(h){return keyOf(h)===(a.getAttribute('data-sec')||'');})[0]:null;
+                t=t||document.getElementById((a.getAttribute('href')||'').split('#').pop());
                 if(!t) return;
-                e.preventDefault();
+                var num=keyOf(t.closest&&t.closest('h3.sec')||t);
+                e.preventDefault();e.stopPropagation();if(e.stopImmediatePropagation) e.stopImmediatePropagation();
                 var delay=0;
                 hs.forEach(function(x){var k=keyOf(x);if(k&&(num===k||num.indexOf(k+'.')===0)&&x.classList.contains('wk-closed')){x.classList.remove('wk-closed');delay=350;}});
                 if(typeof applyCollapse==='function') applyCollapse();
                 setTimeout(function(){t.scrollIntoView({behavior:'smooth',block:'start'});},delay);
-            });
+            },true);
         }
 
         /* ================= 블록 삽입 (대사/주의문구/표/이미지) ================= */
