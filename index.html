@@ -244,6 +244,7 @@
         <button onclick="toggleEdit()" id="editBtn"><i class="bi bi-pencil-square"></i> 편집</button>
         <button onclick="openImport()"><i class="bi bi-folder2-open"></i> 불러오기</button>
         <button onclick="save()"><i class="bi bi-cloud-check"></i> 저장</button>
+        <button onclick="resetDoc()" title="문서를 처음 상태(기본 틀)로 되돌림 — 책갈피는 지워지지 않음"><i class="bi bi-eraser"></i> 초기화</button>
         <button onclick="copyCode()"><i class="bi bi-clipboard"></i> 코드복사</button>
         <button onclick="downloadCode()"><i class="bi bi-download"></i> 다운로드</button>
         <button onclick="saveImage()" id="imgSaveBtn"><i class="bi bi-camera"></i> 이미지 저장</button>
@@ -297,9 +298,13 @@
                 <span class="pair"><input type="text" id="tblW" title="예: 100%, 400 (px)"><button onclick="tblOp('tblWidth')">적용</button></span>
                 <span class="pair"><input type="text" id="colW" title="선택한 열의 너비. 예: 120 (px), 30%"><button onclick="tblOp('colWidth')">적용</button></span>
                 <span class="pair"><input type="text" id="rowH" title="선택한 행의 높이. 예: 40 (px)"><button onclick="tblOp('rowHeight')">적용</button></span>
+            </div>
+            <div class="btn-group" data-ctx="table">
+                <button onclick="tblOp('eqWidth')" title="열 너비를 모두 같게 (여러 칸을 드래그했으면 그 열들만)">너비 같게</button>
+                <button onclick="tblOp('eqHeight')" title="행 높이를 모두 같게 — 가장 높은 행에 맞춤 (여러 칸을 드래그했으면 그 행들만)">높이 같게</button>
                 <button onclick="tblOp('fit')" id="fitBtn" title="화면 너비가 바뀌어도 표의 비율을 유지하고, 글씨·여백·이미지도 같은 비율로 줄이거나 늘림">비율 고정</button>
             </div>
-            <div class="hint" data-ctx="table">숫자만 쓰면 px, 비우고 적용하면 자동 · 여러 칸을 드래그하면 글씨/색/크기/정렬 버튼이 선택한 칸 전체에 적용됩니다</div>
+            <div class="hint" data-ctx="table">숫자만 쓰면 px, 비우고 적용하면 자동 · 너비/높이 같게는 여러 칸을 드래그하면 그 열·행만, 한 칸만 고르면 표 전체 · 여러 칸을 드래그하면 글씨/색/크기/정렬 버튼이 선택한 칸 전체에 적용됩니다</div>
             <div class="btn-group" data-ctx="img">
                 <span class="label"><i class="bi bi-image"></i> 이미지 크기</span>
                 <button onclick="imgOp('25%')">25%</button>
@@ -439,6 +444,7 @@
     <script>
         /* ================= 공통 ================= */
         const wiki=document.querySelector('.wiki'),delBtn=document.getElementById('blockDel');
+        const BLANK_DOC=wiki.innerHTML;   // 초기화용: 처음 열었을 때의 기본 틀
         const $=id=>document.getElementById(id);
         const nodeEl=n=>n.nodeType===1?n:n.parentElement;
         const isBlank=el=>!el.textContent.replace(/[\s​]/g,'')&&!el.querySelector('img');
@@ -650,12 +656,13 @@
             el.addEventListener('mousedown',e=>{if(!e.target.closest('input')) e.preventDefault();});
             cp.open=btn=>{
                 if(cp.target===btn&&!el.hidden) return closePicker();
+                if(!el.hidden&&cp.target) closePicker();   // 다른 색 창을 열면 앞의 색은 적용하고 닫음
                 el.hidden=false;showAdv(false);
                 const none=btn.value==='transparent';
                 cp.target=none?null:btn;   // '없음'일 때는 창을 열기만 해서 값이 바뀌지 않게
                 noneBtn.hidden=btn.id!=='bgColor';
                 setHex(COLOR_RE.test(btn.value)?btn.value.toLowerCase():none?'#ffffff':'#000000');
-                cp.drawChips();cp.target=btn;
+                cp.drawChips();cp.target=btn;cp.startVal=btn.value;
                 noneBtn.classList.toggle('sel',none);cp.place();
             };
             // 색 버튼 아래(공간이 없으면 위)에 화면 밖으로 나가지 않게
@@ -692,9 +699,29 @@
             if(document.fonts){document.fonts.ready.then(mark);document.fonts.addEventListener('loadingdone',later);}   // 아이콘 글꼴이 늦게 불러와져 버튼 너비가 바뀌는 경우
             new ResizeObserver(()=>{if(tb.clientWidth!==lastW){lastW=tb.clientWidth;mark();}}).observe(tb);
         }
-        function closePicker(){cp.el.hidden=true;cp.target=null;}
+        // 색 창을 닫을 때 색이 바뀌었으면 바로 적용 (따로 적용 버튼을 누르지 않아도). Esc는 취소
+        function closePicker(cancel){
+            const t=cp.target,changed=t&&t.value!==cp.startVal;
+            if(cancel&&changed) t.value=cp.startVal;
+            cp.el.hidden=true;cp.target=null;
+            if(!cancel&&changed) applyPickedColor(t);
+        }
+        function applyPickedColor(btn){
+            const act={fgColor:()=>autoFmt('fg'),bgColor:()=>autoFmt('bg'),cellBg:()=>tblOp('cellBg'),tblBorder:()=>tblOp('border'),qBg:()=>quoteOp('bg'),qChip:()=>quoteOp('chip')}[btn.id];
+            if(act) try{act();}catch(e){console.error(e);}
+        }
+        // 글씨색·배경색: 드래그한 글씨(또는 선택한 표 칸)에 적용. 커서만 있으면 이어서 쓰는 글씨에 적용
+        function autoFmt(kind){
+            if(formatCells()) return fmt(kind);
+            const r=lastRange;
+            if(!isEdit||!r||!r.startContainer.isConnected||!wiki.contains(r.startContainer)||!caretHost()) return;
+            if(!r.collapsed) return fmt(kind);
+            restoreSel();
+            document.execCommand('styleWithCSS',false,true);
+            document.execCommand(kind==='fg'?'foreColor':'hiliteColor',false,$(kind==='fg'?'fgColor':'bgColor').value);
+        }
         document.addEventListener('pointerdown',e=>{if(!cp.el.hidden&&!e.target.closest('#cpop,.cp-input')) closePicker();});
-        document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!cp.el.hidden) closePicker();});
+        document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!cp.el.hidden) closePicker(true);});
         addEventListener('resize',()=>{if(!cp.el.hidden) closePicker();});
         // 색 버튼: .value 로 색을 읽고 쓰며(기존 코드 그대로), 값이 바뀌면 버튼 색도 바뀜
         {
@@ -1886,6 +1913,33 @@
                     for(let i=r.r1;i<=r.r2;i++) if(m.rows[i]){m.rows[i].style.height=v;if(!m.rows[i].getAttribute('style')) m.rows[i].removeAttribute('style');}
                     return;
                 }
+                // 열 너비 같게: 선택한 열들(한 칸만 골랐으면 표 전체)의 너비 합을 똑같이 나눔. 화면 너비에 맞춰 늘고 줄도록 %로
+                case 'eqWidth':{
+                    if(t.closest('.info')) return alert('상단 표는 왼쪽 칸 너비가 고정이라 쓸 수 없습니다.');
+                    const all=r.c1===r.c2,c1=all?0:r.c1,c2=all?m.nCols-1:r.c2,n=c2-c1+1;
+                    if(n<2) return;
+                    let cg=t.querySelector('colgroup');
+                    if(!cg){cg=document.createElement('colgroup');t.prepend(cg);}
+                    while(cg.children.length<m.nCols) cg.appendChild(document.createElement('col'));
+                    const tw=t.getBoundingClientRect().width||1;
+                    const colW=j=>{const c=m.cells.find(x=>x.c0===j&&x.c1===j);return c?c.el.getBoundingClientRect().width:tw/m.nCols;};
+                    let sum=0;for(let j=c1;j<=c2;j++) sum+=colW(j);
+                    const pct=all?100/n:sum/tw*100/n;
+                    for(let j=c1;j<=c2;j++) cg.children[j].style.width=(+pct.toFixed(3))+'%';
+                    // 칸에 직접 준 너비는 지워야 열 너비가 적용됨
+                    m.cells.filter(c=>c.c0>=c1&&c.c1<=c2).forEach(c=>{c.el.style.width='';if(!c.el.getAttribute('style')) c.el.removeAttribute('style');});
+                    return refreshCtx();
+                }
+                // 행 높이 같게: 선택한 행들(한 칸만 골랐으면 표 전체)을 그중 가장 높은 행에 맞춤 (글씨가 잘리지 않게)
+                case 'eqHeight':{
+                    const all=r.r1===r.r2,r1=all?0:r.r1,r2=all?m.rows.length-1:r.r2;
+                    const rows=m.rows.slice(r1,r2+1).filter(x=>!x.classList.contains('wk-rf-hide')&&x.getClientRects().length);
+                    if(rows.length<2) return;
+                    rows.forEach(x=>x.style.height='');
+                    const h=Math.ceil(Math.max(...rows.map(x=>x.getBoundingClientRect().height)));
+                    m.rows.slice(r1,r2+1).forEach(x=>x.style.height=h+'px');
+                    return refreshCtx();
+                }
                 case 'fit':
                     if(t.closest('.info')) return alert('상단 표에는 쓸 수 없습니다.');
                     setFit(t,!t.classList.contains('wk-fit'));
@@ -1996,6 +2050,12 @@
                 row.append(open,del);box.appendChild(row);
             });
         }
+        // 초기화: 기본 틀로 되돌림 (뒤로가기로 되돌릴 수 있음, 책갈피는 그대로)
+        function resetDoc(){
+            if(!confirm('문서를 처음 상태(기본 틀)로 초기화할까요?\n지금 내용은 뒤로가기(Ctrl+Z)로 되돌릴 수 있고, 저장된 책갈피는 지워지지 않습니다.')) return;
+            loadDoc(BLANK_DOC);stampDate();rebaseHistory();   // 날짜 갱신까지 한 번의 뒤로가기로
+            window.scrollTo(0,0);
+        }
         function openImport(){openModal('importM');renderBookmarks();}
         // 저장본(편집기 형식 HTML)을 문서로 불러오기
         function loadDoc(html,colors){
@@ -2051,7 +2111,7 @@
             c.querySelectorAll('.footnote p > span').forEach(trimTail);   // 각주 끝의 빈 줄도
             c.querySelectorAll('tbody.wk-rowfold').forEach(b=>b.classList.add('wk-closed'));
             c.querySelectorAll('tr.wk-rf-head[data-rf]').forEach(h=>{h.classList.add('wk-closed');h.closest('table').querySelectorAll(`tr[data-rf="${h.dataset.rf}"]`).forEach(x=>{if(x!==h) x.classList.add('wk-rf-hide');});});
-            c.querySelectorAll('[contenteditable],[data-locked],[data-manual],[data-island]').forEach(e=>['contenteditable','data-locked','data-manual','data-island'].forEach(a=>e.removeAttribute(a)));
+            c.querySelectorAll('[contenteditable],[data-locked],[data-manual],[data-island],[data-sid]').forEach(e=>['contenteditable','data-locked','data-manual','data-island','data-sid'].forEach(a=>e.removeAttribute(a)));
             clearTemp(c);
             // 블로그 스킨의 CSS보다 우선: 직접 넣은 서식(인라인 style)도 !important로
             c.querySelectorAll('[style]').forEach(e=>{
