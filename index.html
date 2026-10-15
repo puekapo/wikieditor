@@ -91,6 +91,20 @@
         .modal-box input,.modal-box textarea{width:100%;padding:10px;margin-bottom:15px;border:1px solid #dee2e6;border-radius:4px;font-family:inherit;font-size:14px}
         .modal-box textarea{resize:vertical;min-height:100px}
         .modal-box small{display:block;color:#888;font-size:12px;margin:-8px 0 15px}
+        #importM .modal-box{max-height:92vh;overflow:auto}
+        .imp-sec{font-size:14px;font-weight:700;color:#444;margin:0 0 10px}
+        .imp-hr{border:0;border-top:1px dashed #dee2e6;margin:18px 0}
+        .bm-list{border:1px solid #dee2e6;border-radius:6px;margin-bottom:15px;max-height:260px;overflow:auto}
+        .bm-list:empty{display:none}
+        .bm-item{display:flex;align-items:stretch;border-bottom:1px solid #eee}
+        .bm-item:last-child{border-bottom:none}
+        .bm-open{flex:1;min-width:0;text-align:left;background:#fff;border:0;padding:10px 14px;cursor:pointer;font-family:inherit}
+        .bm-open:hover{background:#f8f9fa}
+        .bm-open b{display:block;font-size:15px;color:#222;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+        .bm-open span{font-size:12px;color:#888}
+        .bm-del{width:52px;flex:none;border:0;border-left:1px solid #eee;background:#fff;color:#999;cursor:pointer;font-size:16px}
+        .bm-del:hover{background:#fff0f0;color:#af0505}
+        .bm-empty{padding:14px;color:#999;font-size:13px;text-align:center}
         .modal-btns{display:flex;gap:10px;justify-content:flex-end}
         .modal-btns button{padding:10px 20px;border:none;border-radius:4px;cursor:pointer;font-family:inherit}
         .btn-primary{background:#af0505;color:#fff}.btn-secondary{background:#e9ecef;color:#333}
@@ -228,7 +242,7 @@
     <div id="toolbar">
         <div class="btn-group">
         <button onclick="toggleEdit()" id="editBtn"><i class="bi bi-pencil-square"></i> 편집</button>
-        <button onclick="openModal('importM')"><i class="bi bi-folder2-open"></i> 불러오기</button>
+        <button onclick="openImport()"><i class="bi bi-folder2-open"></i> 불러오기</button>
         <button onclick="save()"><i class="bi bi-cloud-check"></i> 저장</button>
         <button onclick="copyCode()"><i class="bi bi-clipboard"></i> 코드복사</button>
         <button onclick="downloadCode()"><i class="bi bi-download"></i> 다운로드</button>
@@ -359,11 +373,16 @@
     </div></div>
 
     <div class="modal" id="importM"><div class="modal-box">
-        <h3>HTML 불러오기</h3>
+        <h3>불러오기</h3>
+        <div class="imp-sec"><i class="bi bi-bookmark"></i> 저장된 책갈피 — 눌러서 불러오기</div>
+        <div id="bmList" class="bm-list"></div>
+        <small id="bmHint">[저장]을 누르면 문서의 '이름'(맨 위 제목)으로 저장되고, 같은 이름이 있으면 자동으로 덮어씁니다.</small>
+        <hr class="imp-hr">
+        <div class="imp-sec"><i class="bi bi-file-earmark-code"></i> HTML 파일·코드로 불러오기</div>
         <input type="file" id="importFile" accept=".html,.htm,text/html">
         <textarea id="importText" placeholder="또는 복사한 HTML을 여기에 붙여넣기"></textarea>
         <small>이 편집기에서 복사·다운로드한 HTML(티스토리 HTML 편집 화면에서 다시 복사한 내용도 가능)을 불러와 이어서 편집합니다.</small>
-        <div class="modal-btns"><button class="btn-secondary" onclick="closeModal()">취소</button><button class="btn-primary" onclick="importHTML()">불러오기</button></div>
+        <div class="modal-btns"><button class="btn-secondary" onclick="closeModal()">닫기</button><button class="btn-primary" onclick="importHTML()">HTML 불러오기</button></div>
     </div></div>
 
     <div class="modal" id="linkM"><div class="modal-box">
@@ -1902,6 +1921,92 @@
             get(k){return this.req('readonly',s=>s.get(k));},
             set(k,v){return this.req('readwrite',s=>s.put(v,k));}
         };
+        /* 책갈피 저장소: 브라우저가 막은 저장소는 건너뛰고 쓸 수 있는 곳에 자동으로 저장
+           IndexedDB → Cache Storage → localStorage → sessionStorage(탭을 닫기 전까지) → 탭 이름(window.name, 새로고침해도 유지) 순서 */
+        const withTimeout=(pr,ms)=>Promise.race([pr,new Promise((_,rej)=>setTimeout(()=>rej(new Error('timeout')),ms))]);
+        const webStore=w=>({
+            get:async k=>w().getItem(k),
+            set:async(k,v)=>w().setItem(k,v),
+            del:async k=>w().removeItem(k)
+        });
+        const KV=[
+            {name:'IndexedDB',get:k=>store.get(k),set:(k,v)=>store.set(k,v),del:k=>store.req('readwrite',s=>s.delete(k))},
+            {name:'Cache',
+             c:()=>caches.open('wiki-editor-kv'),u:k=>new Request(location.href.split('#')[0].split('?')[0]+'?__wkkv='+encodeURIComponent(k)),
+             async get(k){const r=await(await this.c()).match(this.u(k));return r?r.text():null;},
+             async set(k,v){await(await this.c()).put(this.u(k),new Response(v,{headers:{'content-type':'text/plain;charset=utf-8'}}));},
+             async del(k){await(await this.c()).delete(this.u(k));}},
+            {name:'localStorage',...webStore(()=>localStorage)},
+            {name:'sessionStorage',...webStore(()=>sessionStorage)},
+            {name:'탭 메모리',
+             all(){try{const m=window.name.startsWith('wkkv:')?JSON.parse(window.name.slice(5)):{};return m&&typeof m==='object'?m:{};}catch(e){return {};}},
+             async get(k){return this.all()[k]??null;},
+             async set(k,v){const m=this.all();m[k]=v;window.name='wkkv:'+JSON.stringify(m);},
+             async del(k){const m=this.all();delete m[k];window.name='wkkv:'+JSON.stringify(m);}}
+        ];
+        const BM_KEY='wiki-bookmarks';
+        // 모든 저장소의 책갈피를 모아 이름별로 가장 최근 것만
+        async function bmRead(){
+            const all={};
+            for(const b of KV){
+                try{
+                    const v=await withTimeout(b.get(BM_KEY),3000);if(!v) continue;
+                    const m=typeof v==='string'?JSON.parse(v):v;
+                    Object.entries(m||{}).forEach(([n,d])=>{if(d&&(!all[n]||d.savedAt>all[n].savedAt)) all[n]={...d,where:b.name};});
+                }catch(e){}
+            }
+            return all;
+        }
+        async function bmWrite(mutate){
+            const all=await bmRead();mutate(all);
+            const clean={};Object.entries(all).forEach(([n,d])=>{const {where,...rest}=d;clean[n]=rest;});
+            const json=JSON.stringify(clean);
+            for(const b of KV){
+                try{
+                    await withTimeout(b.set(BM_KEY,json),5000);
+                    const back=await withTimeout(b.get(BM_KEY),3000);   // 실제로 써졌는지 확인
+                    if(back!==json&&!(back&&JSON.stringify(typeof back==='string'?JSON.parse(back):back)===json)) throw new Error('verify');
+                    // 다른 저장소에 남은 옛 사본은 지움 (지운 책갈피가 되살아나지 않게)
+                    for(const o of KV) if(o!==b) try{await withTimeout(o.del(BM_KEY),3000);}catch(e){}
+                    return b.name;
+                }catch(e){}
+            }
+            return null;
+        }
+        const fmtTime=t=>{const d=new Date(t),z=n=>String(n).padStart(2,'0');return `${d.getFullYear()}-${z(d.getMonth()+1)}-${z(d.getDate())} ${z(d.getHours())}:${z(d.getMinutes())}`;};
+        const docName=()=>((wiki.querySelector('h2')||{}).textContent||'').trim()||'이름 없음';
+        async function renderBookmarks(){
+            const box=$('bmList');
+            box.innerHTML='<div class="bm-empty">불러오는 중…</div>';
+            const all=await bmRead(),names=Object.keys(all).sort((a,b)=>all[b].savedAt-all[a].savedAt);
+            box.replaceChildren();
+            if(!names.length){box.innerHTML='<div class="bm-empty">저장된 책갈피가 없습니다.</div>';return;}
+            names.forEach(n=>{
+                const row=document.createElement('div');row.className='bm-item';
+                const open=document.createElement('button');open.type='button';open.className='bm-open';
+                const b=document.createElement('b');b.textContent=n;
+                const sp=document.createElement('span');sp.textContent='저장: '+fmtTime(all[n].savedAt);
+                open.append(b,sp);open.title=all[n].where+'에 저장됨';
+                open.onclick=()=>{
+                    if(!confirm(`지금 편집 중인 내용을 "${n}" 책갈피로 바꿀까요?\n(바꾼 뒤에도 뒤로가기로 되돌릴 수 있습니다)`)) return;
+                    loadDoc(all[n].html,all[n].colors);closeModal();
+                };
+                const del=document.createElement('button');del.type='button';del.className='bm-del';del.title='삭제';del.innerHTML='<i class="bi bi-trash"></i>';
+                del.onclick=async()=>{if(!confirm(`"${n}" 책갈피를 삭제할까요?`)) return;await bmWrite(m=>delete m[n]);renderBookmarks();};
+                row.append(open,del);box.appendChild(row);
+            });
+        }
+        function openImport(){openModal('importM');renderBookmarks();}
+        // 저장본(편집기 형식 HTML)을 문서로 불러오기
+        function loadDoc(html,colors){
+            flushHistory();
+            if(colors) setChips([...colorChips,...parseColors(colors)]);
+            wiki.innerHTML=html;
+            const ph=wiki.querySelector('#mainImg .ph');if(ph&&!ph.textContent.trim()) ph.textContent='이미지를 클릭하여 업로드';
+            normalize();renumberFootnotes();rebuildToc();
+            hideDel();refreshCtx();
+            mo.takeRecords();record(true);
+        }
         async function saveDraft(){
             const html=wiki.innerHTML;
             let ok=false;
@@ -1919,7 +2024,10 @@
         const autoSave=()=>{dirty=true;clearTimeout(autoTimer);autoTimer=setTimeout(saveDraft,1500);};
         async function save(){
             flushHistory();
-            if(await saveDraft()) return alert('저장됨!');
+            const name=docName(),draft=await saveDraft();
+            const where=await bmWrite(m=>{m[name]={html:wiki.innerHTML,colors:wiki.dataset.colors||'',savedAt:Date.now()};});
+            if(where) return alert(`저장됨! (책갈피: ${name})`+(/^(IndexedDB|Cache|localStorage)$/.test(where)?'':`\n※ 이 브라우저는 저장소를 막아 두어 임시 공간(${where})에 저장했습니다. 브라우저(탭)를 닫으면 사라질 수 있으니 다운로드도 해 두세요.`));
+            if(draft) return alert('저장됨! (책갈피 목록에는 넣지 못했습니다)');
             if(confirm('이 브라우저에서는 저장 공간을 쓸 수 없습니다.\n지금 내용이 들어 있는 편집기 파일로 내려받을까요? (다음에 그 파일을 열면 이어서 편집)')) downloadEditor();
         }
         // 지금 내용이 들어 있는 편집기 HTML 파일 자체를 내려받기
@@ -2029,6 +2137,30 @@ document.querySelectorAll('.wiki h3.sec').forEach(function(h){h.addEventListener
         const loadCapture=()=>loadLib(['https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js',
                                        'https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js',
                                        'https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js'],()=>window.html2canvas);
+        /* 다른 사이트의 이미지는 그 사이트가 허락하지 않으면 캡처·워드 저장에서 그림을 읽을 수 없음(빈칸이 됨)
+           → 직접 읽기 실패 시 공개 이미지 중계 서버(wsrv.nl)를 거쳐 읽음 */
+        const IMG_PROXIES=[u=>'https://wsrv.nl/?url='+encodeURIComponent(u),u=>'https://images.weserv.nl/?url='+encodeURIComponent(u)];
+        function loadReadable(src){
+            const tryLoad=u=>new Promise(res=>{
+                const im=new Image(),t=setTimeout(()=>res(null),15000);
+                if(!u.startsWith('data:')) im.crossOrigin='anonymous';
+                im.onload=()=>{clearTimeout(t);try{const c=document.createElement('canvas');c.width=c.height=1;c.getContext('2d').drawImage(im,0,0);c.toDataURL();res(im.naturalWidth?im:null);}catch(e){res(null);}};
+                im.onerror=()=>{clearTimeout(t);res(null);};
+                im.src=u;
+            });
+            return (async()=>{
+                if(!src) return null;
+                const list=/^https?:/i.test(src)?[src,...IMG_PROXIES.map(f=>f(src))]:[src];
+                for(const u of list){const im=await tryLoad(u);if(im) return im;}
+                return null;
+            })();
+        }
+        async function imgDataURL(src){
+            const im=await loadReadable(src);if(!im) return null;
+            const c=document.createElement('canvas');c.width=im.naturalWidth;c.height=im.naturalHeight;
+            c.getContext('2d').drawImage(im,0,0);
+            return c.toDataURL('image/png');
+        }
         async function saveImage(){
             const name=askFileName('png');
             if(!name) return;
@@ -2042,7 +2174,15 @@ document.querySelectorAll('.wiki h3.sec').forEach(function(h){h.addEventListener
                 wiki.setAttribute('data-edit','false');clearTemp(wiki);applyCollapse();
                 await document.fonts.ready;
                 const scale=Math.min(2,16000/wiki.scrollHeight);   // 브라우저 캔버스 최대 크기 안에서 선명하게
+                // 다른 사이트 이미지(프로필 등)는 미리 읽어서 캡처용 사본에 그림 자체로 넣음
+                const liveImgs=[...wiki.querySelectorAll('img')];
+                const inlined=await Promise.all(liveImgs.map(im=>{const s=im.getAttribute('src')||'';return /^https?:/i.test(s)&&!s.startsWith(location.origin+'/')?imgDataURL(im.src):null;}));
+                // 비율 고정 표(글씨 크기가 너비 기준 단위)는 캡처 도구가 계산하지 못하므로 지금 보이는 px로
+                const fitSizes=[...wiki.querySelectorAll('table.wk-fit')].map(t=>getComputedStyle(t).fontSize);
                 const canvas=await html2canvas(wiki,{backgroundColor:'#ffffff',scale,useCORS:true,logging:false,onclone:doc=>{
+                    const cw=doc.querySelector('.wiki');
+                    cw.querySelectorAll('img').forEach((im,i)=>{if(inlined[i]){im.src=inlined[i];im.removeAttribute('srcset');}});
+                    cw.querySelectorAll('table.wk-fit').forEach((t,i)=>{if(fitSizes[i]) t.style.fontSize=fitSizes[i];});
                     // 캡처용 사본만 손질: 빈 프로필 이미지 안내 문구 숨김
                     doc.querySelectorAll('.wiki .main-img .ph').forEach(e=>e.textContent='');
                     // 대사 글씨(display:block)를 캡처 도구가 빠뜨리므로 사본에서는 inline으로 (모양은 같음)
@@ -2143,17 +2283,12 @@ document.querySelectorAll('.wiki h3.sec').forEach(function(h){h.addEventListener
             // 이미지 → PNG (워드는 webp를 못 읽고, 외부 주소는 내려받아 넣어야 함)
             const b64=s=>Uint8Array.from(atob(s),c=>c.charCodeAt(0));
             async function png(img){
-                const src=img.getAttribute('src')||'';
-                const load=cors=>new Promise(res=>{const im=new Image();if(cors) im.crossOrigin='anonymous';im.onload=()=>res(im);im.onerror=()=>res(null);im.src=src;});
-                for(const cors of src.startsWith('data:')?[false]:[true,false]){
-                    const im=await load(cors);
-                    if(!im||!im.naturalWidth) continue;
-                    const k=Math.min(1,1600/Math.max(im.naturalWidth,im.naturalHeight)),c=document.createElement('canvas');
-                    c.width=Math.round(im.naturalWidth*k);c.height=Math.round(im.naturalHeight*k);
-                    c.getContext('2d').drawImage(im,0,0,c.width,c.height);
-                    try{return {bytes:b64(c.toDataURL('image/png').split(',')[1]),w:im.naturalWidth,h:im.naturalHeight};}catch(e){}   // 외부 사이트가 막으면 실패
-                }
-                return null;
+                const im=await loadReadable(img.getAttribute('src')?img.src:'');   // 외부 사이트가 막으면 중계 서버 경유
+                if(!im) return null;
+                const k=Math.min(1,1600/Math.max(im.naturalWidth,im.naturalHeight)),c=document.createElement('canvas');
+                c.width=Math.round(im.naturalWidth*k);c.height=Math.round(im.naturalHeight*k);
+                c.getContext('2d').drawImage(im,0,0,c.width,c.height);
+                try{return {bytes:b64(c.toDataURL('image/png').split(',')[1]),w:im.naturalWidth,h:im.naturalHeight};}catch(e){return null;}
             }
             const imgRun=new Map();
             for(const img of wiki.querySelectorAll('img')){
