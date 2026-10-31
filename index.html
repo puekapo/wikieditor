@@ -128,6 +128,28 @@
         .wiki.cell-dragging,.wiki.cell-dragging *{user-select:none}
         .wiki .fn-flash{background:#fff3a0;transition:background .3s}
         @media(max-width:767px){#ctxTools{padding:8px 10px}}
+        /* 링크 창: 탭 · 키워드 링크 목록 */
+        .lk-tabs{display:flex;gap:4px;margin:0 0 16px;border-bottom:1px solid #dee2e6}
+        .lk-tabs button{flex:1;padding:8px 6px;border:0;border-bottom:3px solid transparent;background:none;font:700 15px inherit;font-family:inherit;color:#868e96;cursor:pointer}
+        .lk-tabs button.on{color:#af0505;border-bottom-color:#af0505}
+        .lk-tabs button:disabled{opacity:.4;cursor:default}
+        #linkM [hidden]{display:none}
+        .kw-add{display:flex;gap:6px;margin:4px 0 12px}
+        .kw-add input{margin:0!important;min-width:0}.kw-add #kwWord{flex:0 0 32%}.kw-add #kwUrl{flex:1}
+        .kw-add button{flex:none;padding:0 14px;border:0;border-radius:4px;cursor:pointer;font-family:inherit}
+        .kw-table{width:100%;border-collapse:collapse;table-layout:fixed;font-size:13px}
+        .kw-table th{background:#f1f3f5;color:#495057;font-weight:700;padding:6px 8px;border:1px solid #dee2e6;text-align:left}
+        .kw-table tbody tr{height:32px}
+        .kw-table td{padding:0 8px;border:1px solid #dee2e6;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;height:32px;line-height:30px;box-sizing:border-box}
+        .kw-table tbody tr[data-i]{cursor:pointer}.kw-table tbody tr[data-i]:hover{background:#f8f9fa}
+        .kw-table tbody tr.on{background:#fff5f5}
+        .kw-table td small{color:#adb5bd;margin:0 0 0 4px;display:inline;font-size:12px;line-height:1}
+        .kw-table td button{border:0;background:none;color:#868e96;cursor:pointer;padding:0;font-size:14px;line-height:1;height:20px;vertical-align:middle}.kw-table td button:hover{color:#af0505}
+        .kw-table td.kw-empty{text-align:center;color:#adb5bd;white-space:normal}
+        .kw-pager{display:flex;justify-content:center;gap:4px;margin:10px 0 0;min-height:28px}
+        .kw-pager button{min-width:28px;height:28px;border:1px solid #dee2e6;background:#fff;border-radius:4px;cursor:pointer;font-family:inherit;font-size:13px}
+        .kw-pager button.on{background:#af0505;border-color:#af0505;color:#fff}
+        .kw-pager button:disabled{opacity:.35;cursor:default}
         /* 표 종류 고르기 메뉴 */
         #toolbar .tb-menu{position:relative;display:inline-flex}
         #toolbar .tb-caret{font-size:.7em;margin-left:2px;vertical-align:middle}
@@ -410,11 +432,25 @@
     </div></div>
 
     <div class="modal" id="linkM"><div class="modal-box">
-        <h3>링크</h3>
-        <input id="linkText" placeholder="제목 (비우면 #)" onkeydown="if(event.key==='Enter'){event.preventDefault();applyLink()}">
-        <input id="linkUrl" placeholder="https://… 또는 섹션 번호 #3.1" onkeydown="if(event.key==='Enter'){event.preventDefault();applyLink()}">
-        <small id="linkHint"></small>
-        <div class="modal-btns"><button class="btn-secondary" onclick="closeModal()">취소</button><button class="btn-primary" onclick="applyLink()">적용</button></div>
+        <div class="lk-tabs"><button type="button" id="lkTab1" onclick="linkTab(1)">링크 넣기</button><button type="button" id="lkTab2" onclick="linkTab(2)">키워드 링크</button></div>
+        <div id="lkPane1">
+            <input id="linkText" placeholder="제목 (비우면 #)" onkeydown="if(event.key==='Enter'){event.preventDefault();applyLink()}">
+            <input id="linkUrl" placeholder="https://… 또는 섹션 번호 #3.1" onkeydown="if(event.key==='Enter'){event.preventDefault();applyLink()}">
+            <small id="linkHint"></small>
+            <div class="modal-btns"><button class="btn-secondary" onclick="closeModal()">취소</button><button class="btn-primary" onclick="applyLink()">적용</button></div>
+        </div>
+        <div id="lkPane2" hidden>
+            <small>단어를 등록하면 본문에 이미 있는 그 단어와 앞으로 쓰는 그 단어 전부에 링크가 걸립니다. 줄을 누르면 고칠 수 있어요.</small>
+            <div class="kw-add">
+                <input id="kwWord" placeholder="단어" maxlength="40" onkeydown="if(event.key==='Enter'){event.preventDefault();kwAdd()}">
+                <input id="kwUrl" placeholder="https://… 또는 섹션 #3" onkeydown="if(event.key==='Enter'){event.preventDefault();kwAdd()}">
+                <button type="button" class="btn-primary" id="kwAddBtn" onclick="kwAdd()">추가</button>
+            </div>
+            <table class="kw-table"><colgroup><col style="width:32%"><col><col style="width:40px"></colgroup>
+                <thead><tr><th>단어</th><th>링크</th><th></th></tr></thead><tbody id="kwBody"></tbody></table>
+            <div class="kw-pager" id="kwPager"></div>
+            <div class="modal-btns"><button class="btn-secondary" onclick="closeModal()">닫기</button></div>
+        </div>
     </div></div>
 
     <div class="wiki">
@@ -1440,7 +1476,10 @@
             setTimeout(()=>h.scrollIntoView({behavior:'smooth',block:'start'}),hidden?350:0);
         }
         function openLinkModal(){
-            if(!caretHost()) return alert('링크를 넣을 위치를 클릭하거나 글씨를 드래그하세요.');
+            // 커서가 없으면 키워드 링크 탭만
+            const can=!!caretHost();$('lkTab1').disabled=!can;
+            if(!can){openModal('linkM');return linkTab(2);}
+            linkTab(1);
             const cur=userLink(nodeEl(lastRange.startContainer).closest('a'));
             $('linkUrl').value=cur?(cur.classList.contains('sec-link')?'#'+cur.dataset.sec:cur.getAttribute('href')):'';
             // 제목 칸: 드래그 없이 새 링크를 넣을 때만 (드래그한 글씨에 거는 링크는 그 글씨가 제목)
@@ -1482,11 +1521,124 @@
             }
             $('linkUrl').value=$('linkText').value='';
         }
+        function linkTab(n){
+            $('lkTab1').classList.toggle('on',n===1);$('lkTab2').classList.toggle('on',n===2);
+            $('lkPane1').hidden=n!==1;$('lkPane2').hidden=n!==2;
+            if(n===2){kwEdit(-1);kwRender();setTimeout(()=>$('kwWord').focus(),0);}
+        }
+        /* ================= 키워드 링크 =================
+           등록한 단어가 본문 어디에 있든(이미 쓴 글 + 앞으로 쓰는 글) 같은 링크를 걸어 줌.
+           목록은 문서 안(각주란의 data-kw)에 저장 → 저장·불러오기·다운로드·뒤로가기·함께 편집에 그대로 따라감.
+           입력 중인 단어는 커서가 그 단어를 벗어난 뒤에 링크가 걸림 (쓰는 도중 글자가 끊기지 않게) */
+        const KW_PER_PAGE=8;let kwPage=0,kwSel=-1;
+        const kwBox=()=>wiki.querySelector('.footnote');
+        function kwList(){try{const v=JSON.parse((kwBox()||{}).dataset?.kw||'[]');return Array.isArray(v)?v.filter(x=>Array.isArray(x)&&x[0]&&x[1]).map(x=>[String(x[0]),String(x[1])]):[];}catch(e){return [];}}
+        function kwSave(list){
+            const fb=kwBox();if(!fb) return alert('각주란을 찾지 못했습니다. [새로고침]으로 문서를 점검한 뒤 다시 시도하세요.');
+            if(list.length) fb.dataset.kw=JSON.stringify(list); else fb.removeAttribute('data-kw');
+        }
+        const kwSafeUrl=u=>{u=normUrl(u||'');return /^\s*(javascript|vbscript|data):/i.test(u)?'':u;};
+        function kwAdd(){
+            const w=$('kwWord').value.trim(),u=kwSafeUrl($('kwUrl').value);
+            if(!w) return $('kwWord').focus();
+            if(!u) return alert('링크 주소를 입력하세요');
+            const sn=secRef(u);if(sn&&!secByNum(sn)) return alert(sn+' 섹션이 없습니다. 섹션 번호를 확인해 주세요.');
+            const list=kwList();let i=list.findIndex(x=>x[0]===w);
+            if(kwSel>=0&&kwSel<list.length&&list[kwSel][0]!==w){   // 고르던 줄의 단어를 바꾼 경우
+                if(i>=0) return alert('"'+w+'"은(는) 이미 목록에 있습니다.');
+                list[kwSel]=[w,u];i=kwSel;
+            }else if(i>=0) list[i][1]=u;
+            else{list.push([w,u]);i=list.length-1;}
+            if(sn) list[i][1]='#'+sn;   // 섹션 링크는 #3 / #3.1 형태로 저장
+            kwSave(list);kwPage=Math.floor(i/KW_PER_PAGE);kwEdit(-1);
+            kwApply(true);kwRender();$('kwWord').focus();
+        }
+        function kwDel(i){
+            const list=kwList();if(!list[i]) return;
+            if(!confirm('"'+list[i][0]+'" 키워드 링크를 지울까요?\n본문에 걸린 이 단어의 링크도 모두 풀립니다.')) return;
+            list.splice(i,1);kwSave(list);kwEdit(-1);
+            kwPage=Math.min(kwPage,Math.max(0,Math.ceil(list.length/KW_PER_PAGE)-1));
+            kwApply(true);kwRender();
+        }
+        function kwEdit(i){
+            const list=kwList();kwSel=list[i]?i:-1;
+            $('kwWord').value=kwSel>=0?list[i][0]:'';$('kwUrl').value=kwSel>=0?list[i][1]:'';
+            $('kwAddBtn').textContent=kwSel>=0?'변경':'추가';
+            document.querySelectorAll('#kwBody tr').forEach(tr=>tr.classList.toggle('on',+tr.dataset.i===kwSel));
+        }
+        function kwRender(){
+            const list=kwList(),pages=Math.max(1,Math.ceil(list.length/KW_PER_PAGE));kwPage=Math.min(Math.max(0,kwPage),pages-1);
+            const cnt={};wiki.querySelectorAll('a.wk-kw').forEach(a=>cnt[a.textContent]=(cnt[a.textContent]||0)+1);
+            const body=$('kwBody');body.replaceChildren();
+            if(!list.length){body.innerHTML='<tr><td colspan="3" class="kw-empty">등록한 키워드가 없습니다</td></tr>';}
+            const rows=list.slice(kwPage*KW_PER_PAGE,(kwPage+1)*KW_PER_PAGE);
+            rows.forEach(([w,u],j)=>{
+                const i=kwPage*KW_PER_PAGE+j,tr=document.createElement('tr'),a=document.createElement('td'),b=document.createElement('td'),c=document.createElement('td');
+                tr.dataset.i=i;tr.classList.toggle('on',i===kwSel);
+                a.textContent=w;const n=document.createElement('small');n.textContent=(cnt[w]||0)+'곳';n.title='본문에서 링크가 걸린 곳';a.append(n);
+                const sn=secRef(u),sh=sn&&secByNum(sn);
+                b.textContent=sn?u+' '+(sh?'('+((sh.querySelector('.sec-title')||{}).textContent||'').trim()+')':'(없는 섹션)'):u;b.title=b.textContent;
+                const x=document.createElement('button');x.type='button';x.title='삭제';x.innerHTML='<i class="bi bi-x-lg"></i>';x.onclick=e=>{e.stopPropagation();kwDel(i);};c.append(x);
+                tr.append(a,b,c);tr.onclick=()=>kwEdit(i===kwSel?-1:i);body.append(tr);
+            });
+            // 빈 줄로 한 페이지 높이 유지
+            for(let k=Math.max(rows.length,1);k<KW_PER_PAGE;k++){const tr=document.createElement('tr');tr.innerHTML='<td></td><td></td><td></td>';body.append(tr);}
+            const pg=$('kwPager');pg.replaceChildren();
+            if(pages>1){
+                const mk=(t,to,dis,on)=>{const btn=document.createElement('button');btn.type='button';btn.textContent=t;btn.disabled=dis;if(on) btn.className='on';btn.onclick=()=>{kwPage=to;kwRender();};pg.append(btn);};
+                mk('‹',kwPage-1,kwPage===0);
+                for(let k=0;k<pages;k++) mk(String(k+1),k,false,k===kwPage);
+                mk('›',kwPage+1,kwPage===pages-1);
+            }
+        }
+        // 링크 주소 넣기: #3·#3.1 은 그 섹션으로 이동하는 링크(펼쳐서 이동), 나머지는 인터넷 주소
+        function kwSet(a,u){const sn=secRef(u);if(sn) setSecLink(a,sn); else setHref(a,u);}
+        // 본문에 적용: 목록에 없는 단어·글씨가 바뀐 키워드 링크는 풀고, 목록 단어에 링크를 검
+        const KW_SKIP='a,sup,h2,h3,nav,.toc,.wiki-date,.footnote,.ph,button,section>span';
+        function kwApply(all){
+            const sec=wiki.querySelector('section');if(!sec) return;
+            const list=kwList(),map=new Map(list);
+            const sel=getSelection(),caret=!all&&sel.rangeCount&&wiki.contains(sel.focusNode)?{n:sel.focusNode,o:sel.focusOffset}:null;
+            // 1) 풀기 / 주소 맞추기 (목록이 바뀌었을 때(all)는 모두 풀고 다시 걸어 긴 단어가 우선되게)
+            wiki.querySelectorAll('a.wk-kw').forEach(a=>{
+                const u=all?null:map.get(a.textContent);
+                if(u&&!(caret&&a.contains(caret.n))){const sn=secRef(u);if(sn?a.dataset.sec!==sn:a.getAttribute('href')!==u) kwSet(a,u);return;}
+                if(u) return;
+                const par=a.parentNode;a.replaceWith(...a.childNodes);par.normalize();
+            });
+            if(!list.length) return;
+            // 2) 걸기 (긴 단어 먼저)
+            const esc=w=>w.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+            const re=new RegExp([...map.keys()].sort((a,b)=>b.length-a.length).map(esc).join('|'),'g');
+            const tw=document.createTreeWalker(sec,NodeFilter.SHOW_TEXT,{acceptNode:t=>t.parentElement.closest(KW_SKIP)?NodeFilter.FILTER_REJECT:NodeFilter.FILTER_ACCEPT});
+            const texts=[];while(tw.nextNode()) texts.push(tw.currentNode);
+            texts.forEach(t=>{
+                const ms=[...t.data.matchAll(re)];
+                for(let k=ms.length-1;k>=0;k--){   // 뒤에서부터 잘라야 앞쪽 위치가 그대로
+                    const m=ms[k],st=m.index,en=st+m[0].length;
+                    if(caret&&caret.n===t&&caret.o>=st&&caret.o<=en) continue;   // 지금 쓰고 있는 단어는 나중에
+                    const mid=t.splitText(st);mid.splitText(en-st);
+                    const a=document.createElement('a');a.className='wk-kw';kwSet(a,map.get(m[0]));
+                    mid.replaceWith(a);a.append(mid);
+                }
+            });
+        }
+        // 글을 쓰거나 커서를 옮길 때 잠시 뒤 적용
+        {
+            let kt=0;
+            const later=()=>{clearTimeout(kt);kt=setTimeout(()=>{if(composing) return later();if(isEdit&&kwBox()&&(kwBox().dataset.kw||wiki.querySelector('a.wk-kw'))) kwApply(false);},700);};
+            wiki.addEventListener('input',later);
+            document.addEventListener('selectionchange',()=>{if(isEdit) later();});
+        }
         // 이미 넣은 링크 클릭 → 주소 변경 / 열기 / 해제
         function linkOp(op){
             const a=ctx.link;
             if(!a||!a.isConnected) return refreshCtx();
             if(op==='open') return a.classList.contains('sec-link')?jumpToSec(secByNum(a.dataset.sec)):window.open(a.href,'_blank','noopener');
+            if(a.classList.contains('wk-kw')){   // 키워드 링크는 목록에서 관리
+                if(confirm('"'+a.textContent+'"은(는) 키워드 링크입니다. 키워드 링크 목록을 열까요?')){const i=kwList().findIndex(x=>x[0]===a.textContent);openModal('linkM');$('lkTab1').disabled=false;linkTab(2);if(i>=0){kwPage=Math.floor(i/KW_PER_PAGE);kwRender();kwEdit(i);}}
+                return;
+            }
             if(op==='apply'){
                 const sec=secRef($('linkEditUrl').value);
                 if(sec){
@@ -2154,6 +2306,7 @@
         let dirty=false;
         const autoSave=()=>{dirty=true;clearTimeout(autoTimer);autoTimer=setTimeout(saveDraft,1500);};
         async function save(){
+            if(kwList().length) kwApply(true);
             flushHistory();
             const name=docName(),draft=await saveDraft();
             const where=await bmWrite(m=>{m[name]={html:wiki.innerHTML,colors:wiki.dataset.colors||'',savedAt:Date.now()};});
@@ -2174,6 +2327,7 @@
             a.download=askFileName('html',' - 편집기')||'wiki-editor.html';a.click();
         }
         function exportHTML(){
+            if(kwList().length) kwApply(true);
             applyCollapse();   // 빈 본문 표시를 최신 상태로 (스크립트가 막힌 블로그에서도 적용되도록)
             const c=wiki.cloneNode(true);
             c.removeAttribute('data-edit');c.className='wiki';c.id='wiki-root';
@@ -3227,7 +3381,7 @@ document.querySelectorAll('.wiki h3.sec').forEach(function(h){h.addEventListener
             src.querySelectorAll('script,style,meta,link,iframe,object,embed,sup').forEach(x=>x.remove());
             src.querySelectorAll('*').forEach(x=>{
                 [...x.attributes].forEach(a=>{if(/^on/i.test(a.name)) x.removeAttribute(a.name);});
-                if(x.classList.length) [...x.classList].forEach(k=>{if(!/^(link-chip|sec-link|wk-list|img-cell)$/.test(k)) x.classList.remove(k);});
+                if(x.classList.length) [...x.classList].forEach(k=>{if(!/^(link-chip|sec-link|wk-list|img-cell|wk-kw)$/.test(k)) x.classList.remove(k);});
                 if(x.hasAttribute('class')&&!x.className) x.removeAttribute('class');
             });
             // 1) 자리 만들기: 행·열 늘리고, 붙일 범위의 합친 칸은 풀기
