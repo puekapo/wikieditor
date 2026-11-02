@@ -369,6 +369,7 @@
                 <button onclick="linkOp('apply')">변경</button>
                 <button onclick="linkOp('open')"><i class="bi bi-box-arrow-up-right"></i> 열기</button>
                 <button onclick="linkOp('remove')"><i class="bi bi-x-circle"></i> 링크 해제</button>
+                <button onclick="kwFromLink()" id="kwFromLink" title="이 단어와 링크를 키워드 링크로 등록 — 본문의 같은 단어 전부에 링크가 걸림"><i class="bi bi-bookmark-plus"></i> 키워드로 추가</button>
             </div>
         </div>
     </div>
@@ -440,7 +441,7 @@
             <div class="modal-btns"><button class="btn-secondary" onclick="closeModal()">취소</button><button class="btn-primary" onclick="applyLink()">적용</button></div>
         </div>
         <div id="lkPane2" hidden>
-            <small>단어를 등록하면 본문에 이미 있는 그 단어와 앞으로 쓰는 그 단어 전부에 링크가 걸립니다. 줄을 누르면 고칠 수 있어요.</small>
+            <small>단어를 등록하면 본문에 이미 있는 그 단어와 앞으로 쓰는 그 단어 전부에 링크가 걸립니다. 줄을 누르면 고칠 수 있어요. 한 곳만 빼려면 본문에서 그 링크를 누르고 [링크 해제].</small>
             <div class="kw-add">
                 <input id="kwWord" placeholder="단어" maxlength="40" onkeydown="if(event.key==='Enter'){event.preventDefault();kwAdd()}">
                 <input id="kwUrl" placeholder="https://… 또는 섹션 #3" onkeydown="if(event.key==='Enter'){event.preventDefault();kwAdd()}">
@@ -449,7 +450,7 @@
             <table class="kw-table"><colgroup><col style="width:32%"><col><col style="width:40px"></colgroup>
                 <thead><tr><th>단어</th><th>링크</th><th></th></tr></thead><tbody id="kwBody"></tbody></table>
             <div class="kw-pager" id="kwPager"></div>
-            <div class="modal-btns"><button class="btn-secondary" onclick="closeModal()">닫기</button></div>
+            <div class="modal-btns"><button class="btn-secondary" id="kwRestore" onclick="kwRestore()" style="visibility:hidden;margin-right:auto">해제한 곳 다시 걸기</button><button class="btn-secondary" onclick="closeModal()">닫기</button></div>
         </div>
     </div></div>
 
@@ -1568,14 +1569,17 @@
         }
         function kwRender(){
             const list=kwList(),pages=Math.max(1,Math.ceil(list.length/KW_PER_PAGE));kwPage=Math.min(Math.max(0,kwPage),pages-1);
-            const cnt={};wiki.querySelectorAll('a.wk-kw').forEach(a=>cnt[a.textContent]=(cnt[a.textContent]||0)+1);
+            const cnt={},off={};wiki.querySelectorAll('a.wk-kw').forEach(a=>cnt[a.textContent]=(cnt[a.textContent]||0)+1);
+            wiki.querySelectorAll('span.wk-nokw').forEach(x=>off[x.dataset.w]=(off[x.dataset.w]||0)+1);
+            const nOff=Object.values(off).reduce((a,b)=>a+b,0);
+            $('kwRestore').style.visibility=nOff?'visible':'hidden';$('kwRestore').textContent='해제한 곳 다시 걸기 ('+nOff+')';
             const body=$('kwBody');body.replaceChildren();
             if(!list.length){body.innerHTML='<tr><td colspan="3" class="kw-empty">등록한 키워드가 없습니다</td></tr>';}
             const rows=list.slice(kwPage*KW_PER_PAGE,(kwPage+1)*KW_PER_PAGE);
             rows.forEach(([w,u],j)=>{
                 const i=kwPage*KW_PER_PAGE+j,tr=document.createElement('tr'),a=document.createElement('td'),b=document.createElement('td'),c=document.createElement('td');
                 tr.dataset.i=i;tr.classList.toggle('on',i===kwSel);
-                a.textContent=w;const n=document.createElement('small');n.textContent=(cnt[w]||0)+'곳';n.title='본문에서 링크가 걸린 곳';a.append(n);
+                a.textContent=w;const n=document.createElement('small');n.textContent=(cnt[w]||0)+'곳'+(off[w]?' · 해제 '+off[w]:'');n.title='본문에서 링크가 걸린 곳 · 한 곳만 해제한 곳';a.append(n);
                 const sn=secRef(u),sh=sn&&secByNum(sn);
                 b.textContent=sn?u+' '+(sh?'('+((sh.querySelector('.sec-title')||{}).textContent||'').trim()+')':'(없는 섹션)'):u;b.title=b.textContent;
                 const x=document.createElement('button');x.type='button';x.title='삭제';x.innerHTML='<i class="bi bi-x-lg"></i>';x.onclick=e=>{e.stopPropagation();kwDel(i);};c.append(x);
@@ -1591,20 +1595,64 @@
                 mk('›',kwPage+1,kwPage===pages-1);
             }
         }
+        // 잠깐 떴다 사라지는 안내 (솔로·투게더 공통)
+        function wkNote(msg){const t=document.createElement('div');t.textContent=msg;t.style.cssText='position:fixed;left:50%;bottom:24px;transform:translateX(-50%);z-index:3200;background:rgba(0,0,0,.8);color:#fff;padding:8px 16px;border-radius:18px;font:13px "Noto Sans KR",sans-serif;pointer-events:none;max-width:90vw';document.body.appendChild(t);setTimeout(()=>t.remove(),2200);}
+        // 직접 건 링크가 키워드 목록과 단어·주소가 같으면 true
+        const kwLinkUrl=a=>a.classList.contains('sec-link')?'#'+a.dataset.sec:(a.getAttribute('href')||'');
+        function kwSame(a,map){
+            map=map||new Map(kwList());const u=map.get(a.textContent.replace(/\s+/g,' ').trim());if(!u) return false;
+            const sn=secRef(u);return sn?a.classList.contains('sec-link')&&a.dataset.sec===sn:kwLinkUrl(a)===u;
+        }
+        // 이미 링크가 걸린 단어 → 그 단어·주소 그대로 키워드 링크로 등록
+        function kwFromLink(){
+            const a=ctx.link;if(!a||!a.isConnected) return refreshCtx();
+            const w=a.textContent.replace(/\s+/g,' ').trim(),u=a.classList.contains('sec-link')?'#'+a.dataset.sec:kwSafeUrl(a.getAttribute('href'));
+            if(!w||w==='#') return alert('링크 글씨가 없어 키워드로 등록할 수 없습니다.');
+            if(w.length>40) return alert('키워드는 40자까지 등록할 수 있습니다.');
+            if(!u) return alert('이 링크의 주소를 키워드 링크로 쓸 수 없습니다.');
+            const list=kwList(),i=list.findIndex(x=>x[0]===w);
+            if(i>=0&&list[i][1]===u) return alert('"'+w+'"은(는) 이미 같은 주소로 키워드 링크에 있습니다.');
+            if(i>=0&&!confirm('"'+w+'"은(는) 이미 키워드 링크에 다른 주소로 있습니다.\n'+list[i][1]+' → '+u+'\n이 주소로 바꿀까요?')) return;
+            if(i>=0) list[i][1]=u; else list.push([w,u]);
+            kwSave(list);
+            a.classList.remove('link-chip');a.classList.add('wk-kw');   // 이 링크도 키워드 링크로 관리
+            kwApply(true);ctx.link=null;refreshCtx();
+            const n=wiki.querySelectorAll('a.wk-kw').length,c=[...wiki.querySelectorAll('a.wk-kw')].filter(x=>x.textContent===w).length;
+            wkNote('"'+w+'" 키워드 링크 등록 — 본문 '+c+'곳에 적용');
+        }
+        function kwRestore(){
+            const xs=wiki.querySelectorAll('span.wk-nokw');if(!xs.length) return;
+            if(!confirm('한 곳만 링크를 해제했던 '+xs.length+'곳에 다시 키워드 링크를 걸까요?')) return;
+            xs.forEach(sp=>{const par=sp.parentNode;sp.replaceWith(...sp.childNodes);par.normalize();});
+            kwApply(true);kwRender();
+        }
         // 링크 주소 넣기: #3·#3.1 은 그 섹션으로 이동하는 링크(펼쳐서 이동), 나머지는 인터넷 주소
         function kwSet(a,u){const sn=secRef(u);if(sn) setSecLink(a,sn); else setHref(a,u);}
         // 본문에 적용: 목록에 없는 단어·글씨가 바뀐 키워드 링크는 풀고, 목록 단어에 링크를 검
-        const KW_SKIP='a,sup,h2,h3,nav,.toc,.wiki-date,.footnote,.ph,button,section>span';
+        const KW_NOLINK='.info tr:first-child';   // 상단 프로필 표 맨 위 이름 칸
+        const KW_SKIP='a,sup,h2,h3,nav,.toc,.wiki-date,.footnote,.ph,button,section>span,.wk-nokw,'+KW_NOLINK;   // .wk-nokw: 이 한 곳만 링크 해제한 단어
         function kwApply(all){
             const sec=wiki.querySelector('section');if(!sec) return;
             const list=kwList(),map=new Map(list);
+            // 0) 직접 건 링크 중 키워드와 단어·주소가 같은 것은 키워드 링크로 정돈 (중복 관리 방지)
+            if(list.length) wiki.querySelectorAll('a:not(.wk-kw)').forEach(a=>{
+                if(!userLink(a)||a.closest(KW_NOLINK)||!kwSame(a,map)) return;
+                a.classList.remove('link-chip');a.classList.add('wk-kw');a.removeAttribute('title');
+                const t=a.textContent.replace(/\s+/g,' ').trim();if(a.textContent!==t) a.textContent=t;
+            });
             const sel=getSelection(),caret=!all&&sel.rangeCount&&wiki.contains(sel.focusNode)?{n:sel.focusNode,o:sel.focusOffset}:null;
             // 1) 풀기 / 주소 맞추기 (목록이 바뀌었을 때(all)는 모두 풀고 다시 걸어 긴 단어가 우선되게)
             wiki.querySelectorAll('a.wk-kw').forEach(a=>{
-                const u=all?null:map.get(a.textContent);
+                const u=all||a.parentElement.closest(KW_NOLINK)?null:map.get(a.textContent);
                 if(u&&!(caret&&a.contains(caret.n))){const sn=secRef(u);if(sn?a.dataset.sec!==sn:a.getAttribute('href')!==u) kwSet(a,u);return;}
                 if(u) return;
                 const par=a.parentNode;a.replaceWith(...a.childNodes);par.normalize();
+            });
+            // 한 곳만 해제한 단어: 목록에서 빠졌거나 글씨가 바뀌면 표시를 풀고, 뒤에 이어 쓴 글은 표시 밖으로
+            wiki.querySelectorAll('span.wk-nokw').forEach(sp=>{
+                const w=sp.dataset.w||'',t=sp.textContent;
+                if(!map.has(w)||!t.includes(w)){const par=sp.parentNode;sp.replaceWith(...sp.childNodes);par.normalize();return;}
+                if(t!==w&&!(caret&&sp.contains(caret.n))){const i=t.indexOf(w);sp.before(t.slice(0,i));sp.after(t.slice(i+w.length));sp.textContent=w;sp.parentNode.normalize();}
             });
             if(!list.length) return;
             // 2) 걸기 (긴 단어 먼저)
@@ -1635,7 +1683,12 @@
             const a=ctx.link;
             if(!a||!a.isConnected) return refreshCtx();
             if(op==='open') return a.classList.contains('sec-link')?jumpToSec(secByNum(a.dataset.sec)):window.open(a.href,'_blank','noopener');
-            if(a.classList.contains('wk-kw')){   // 키워드 링크는 목록에서 관리
+            if(a.classList.contains('wk-kw')){   // 키워드 링크: 해제는 이 한 곳만 빼기, 주소 변경은 목록에서
+                if(op==='remove'){
+                    const sp=document.createElement('span');sp.className='wk-nokw';sp.dataset.w=a.textContent;
+                    a.replaceWith(sp);sp.append(...a.childNodes);ctx.link=null;refreshCtx();
+                    return;
+                }
                 if(confirm('"'+a.textContent+'"은(는) 키워드 링크입니다. 키워드 링크 목록을 열까요?')){const i=kwList().findIndex(x=>x[0]===a.textContent);openModal('linkM');$('lkTab1').disabled=false;linkTab(2);if(i>=0){kwPage=Math.floor(i/KW_PER_PAGE);kwRender();kwEdit(i);}}
                 return;
             }
@@ -2933,6 +2986,7 @@ document.querySelectorAll('.wiki h3.sec').forEach(function(h){h.addEventListener
                 $('imgSrc').placeholder=isData?'파일 이미지 → 주소(URL)로 바꾸면 코드가 짧아짐':'이미지 주소(URL)';
             }
             ctx.link=userLink(t.closest('a'));
+            if(ctx.link) $('kwFromLink').style.display=ctx.link.classList.contains('wk-kw')||kwSame(ctx.link)?'none':'';
             if(ctx.link){const ch=ctx.link.classList.contains('link-chip');$('linkEditText').style.display=ch?'':'none';$('linkEditText').value=ch&&ctx.link.textContent!=='#'?ctx.link.textContent:'';}
             if(ctx.link) $('linkEditUrl').value=ctx.link.classList.contains('sec-link')?'#'+ctx.link.dataset.sec:(ctx.link.getAttribute('href')||'');
             endCellDrag();   // 이전 끌기 상태가 남아 있으면 정리
