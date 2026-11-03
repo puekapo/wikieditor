@@ -983,6 +983,7 @@
             p.contentEditable='true';p.textContent=$('secContent').value||'내용을 입력하세요...';
             div.appendChild(p);
             wiki.querySelector('.footnote').before(h,div);
+            normalize();   // 본문 칸을 다른 섹션과 같은 편집 칸으로 (↑/↓로 문단 사이 이동 등)
             rebuildToc();
             $('secTitle').value=$('secContent').value='';
             closeModal();
